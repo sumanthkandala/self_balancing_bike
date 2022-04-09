@@ -18,18 +18,19 @@ class BikeModel():
         self.phi = 0.1
         self.psi = 0.
         self.d = 0.
-        self.d_dot = 0.
         self.theta = 0.
-        self.delta = 0 #TODO CORRECTED GEOMETRY
+        self.delta = 0. #TODO CORRECTED GEOMETRY
         self.valid = True
 
         # Bike State Derivatives
-        self.phi_dot = 0
-        self.phi_ddot = 0
+        self.phi_dot = 0.
+        self.phi_ddot = 0.
+        self.psi_dot = 0.
+        self.d_dot = 0.
 
         # Bike Control Input
         self.delta_dot = 0
-        self.v = 0.3
+        self.v = 0.6
 
         # Config Params
         self.h = 0.015 # Height
@@ -53,15 +54,27 @@ class BikeModel():
 
     def step(self):
         self.navigation_controller()
-        
-        self.x_pos += self.v * np.cos(self.psi)
-        self.y_pos += self.v * np.sin(self.psi)
+        self.balance_controller()
+
+        #Position Update
+        #self.x_pos += self.v * np.cos(self.psi) * self.dt
+        #self.y_pos += self.v * np.sin(self.psi) * self.dt
+
+        #Heading Update
+        self.psi_dot = self.v / (self.w * np.tan(self.delta) * np.cos(self.phi))
+        self.psi += self.psi_dot * self.dt
         
         #Balance Update
         self.phi_ddot = (self.g / self.h) * self.phi - (self.v**2 / (self.h * self.w)) * self.delta - (self.l_r * self.v / (self.h * self.w)) * self.delta_dot
         self.phi_dot += self.phi_ddot * self.dt  
         self.phi = min(np.pi/2., max(-np.pi/2., self.phi + self.phi_dot * self.dt))
         self.delta = min(self.steer_max, max(-self.steer_max, self.delta + self.delta_dot * self.dt))
+
+        #Path Update
+        #self.theta = 
+        self.d_dot = self.v * np.sin(self.theta)
+        self.d += self.d_dot * self.dt 
+
         #print(self.phi, self.phi_dot, self.phi_ddot, self.delta, self.delta_dot)
         #print("1: ", (self.g / self.h) * self.phi, " 2: ", - (self.v**2 / (self.h * self.w)) * self.delta, " 3: ", - (self.l_r * self.v / (self.h * self.w)) * self.delta_dot)
         #Check Toppling Condition
@@ -71,12 +84,11 @@ class BikeModel():
         return
 
     def balance_controller(self):
-        self.delta_dot = max(-self.steer_rate_max, min(self.steer_rate_max, self.K1 * self.phi + self.K2 * self.phi_dot + self.K3 * self.delta))
+        self.delta_dot = max(-self.steer_rate_max, min(self.steer_rate_max, self.K1 * self.phi + self.K2 * self.phi_dot + self.K3 * (self.delta - self.delta_target)))
         return
     
     def navigation_controller(self):
         self.delta_target = self.K4 * self.theta + self.K5 * self.d + self.K6 * self.d_dot
-        self.delta_dot = max(-self.steer_rate_max, min(self.steer_rate_max, self.K1 * self.phi + self.K2 * self.phi_dot + self.K3 * (self.delta - self.delta_target)))
         return
     
     def desired_path(self):
