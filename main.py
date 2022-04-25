@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import math
 import sys
 from PyQt5.QtWidgets import QDialog, QApplication, QPushButton, QVBoxLayout
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -15,22 +16,25 @@ class BikeModel():
         # Bike State
         self.x_pos = 0.
         self.y_pos = 0.
-        self.phi = 0.1
-        self.psi = 0.
+        self.phi = 0.0
+        self.psi = 0.0
         self.d = 0.
         self.theta = 0.
+        self.psi_des = 0.
         self.delta = 0. #TODO CORRECTED GEOMETRY
         self.valid = True
+        self.itr = 0
 
         # Bike State Derivatives
         self.phi_dot = 0.
         self.phi_ddot = 0.
         self.psi_dot = 0.
         self.d_dot = 0.
+        self.v_dot = 0.
 
         # Bike Control Input
         self.delta_dot = 0
-        self.v = 0.6
+        self.v = 0.3
 
         # Config Params
         self.h = 0.015 # Height
@@ -47,36 +51,41 @@ class BikeModel():
         self.K1 = 80.
         self.K2 = 20.
         self.K3 = -20.
-        self.K4 = 0.9
+        self.K4 = 0.4
         self.K5 = 0.2
         self.K6 = 0.1
         return
 
     def step(self):
+        self.itr += 1
         self.navigation_controller()
         self.balance_controller()
 
         #Position Update
-        #self.x_pos += self.v * np.cos(self.psi) * self.dt
-        #self.y_pos += self.v * np.sin(self.psi) * self.dt
+        self.x_pos += self.v * np.cos(self.psi) * self.dt
+        self.y_pos += self.v * np.sin(self.psi) * self.dt
 
         #Heading Update
-        self.psi_dot = self.v / (self.w * np.tan(self.delta) * np.cos(self.phi))
-        self.psi += self.psi_dot * self.dt
-        
+        self.psi_dot = self.v * np.tan(self.delta) / (self.w * np.cos(self.phi))
+        self.psi = math.atan2(np.sin(self.psi + self.psi_dot * self.dt), np.cos(self.psi + self.psi_dot * self.dt)) 
+        #self.psi += self.psi_dot * self.dt
         #Balance Update
-        self.phi_ddot = (self.g / self.h) * self.phi - (self.v**2 / (self.h * self.w)) * self.delta - (self.l_r * self.v / (self.h * self.w)) * self.delta_dot
-        self.phi_dot += self.phi_ddot * self.dt  
+        #self.phi_ddot = (self.g / self.h) * self.phi - (self.v**2 / (self.h * self.w)) * self.delta - (self.l_r * self.v / (self.h * self.w)) * self.delta_dot
+        self.phi_ddot = (self.g / self.h) * np.sin(self.phi) - np.tan(self.delta) * self.v**2 / (self.h * self.w) - self.l_r * self.v * self.delta_dot / (self.h * self.w * np.cos(self.delta)**2) - self.l_r * self.v_dot * np.tan(self.delta) / (self.h * self.w) + self.v**2 * np.tan(self.delta)**2 * np.tan(self.theta) / (self.w**2) - self.l_r * self.phi_dot * np.tan(self.delta) * np.tan(self.phi) / (self.h * self.w)
+        self.phi_dot += self.phi_ddot * self.dt #REPLACE WITH GYRO FEEDBACK
         self.phi = min(np.pi/2., max(-np.pi/2., self.phi + self.phi_dot * self.dt))
         self.delta = min(self.steer_max, max(-self.steer_max, self.delta + self.delta_dot * self.dt))
 
         #Path Update
-        #self.theta = 
+        self.path_updater()
+        self.theta = self.psi - self.psi_des
+        if self.theta < -np.pi:
+            self.theta += 2 * np.pi
+        elif self.theta > np.pi:
+            self.theta -= 2 * np.pi
         self.d_dot = self.v * np.sin(self.theta)
         self.d += self.d_dot * self.dt 
 
-        #print(self.phi, self.phi_dot, self.phi_ddot, self.delta, self.delta_dot)
-        #print("1: ", (self.g / self.h) * self.phi, " 2: ", - (self.v**2 / (self.h * self.w)) * self.delta, " 3: ", - (self.l_r * self.v / (self.h * self.w)) * self.delta_dot)
         #Check Toppling Condition
         if abs(self.phi) > np.pi/6:
             self.valid = False
@@ -90,14 +99,23 @@ class BikeModel():
     def navigation_controller(self):
         self.delta_target = self.K4 * self.theta + self.K5 * self.d + self.K6 * self.d_dot
         return
-    
-    def desired_path(self):
-        return
 
-    def get_psi_des(self):
-        return 0.1 # Circle
-
-    def get_d(self):
+    def path_updater(self):
+        t = np.linspace(0, 2*np.pi, 1000)
+        x_path = np.sin(t) * 0.5
+        y_path = 0.5 + np.cos(t) * 0.5
+        dist = (x_path - self.x_pos * np.ones(len(x_path)))**2 + (y_path - self.y_pos * np.ones(len(y_path)))**2
+        x_next = x_path[(np.argmin(dist) + 1) % len(x_path)]
+        y_next = y_path[(np.argmin(dist) + 1) % len(y_path)]
+        x_prev = x_path[(np.argmin(dist) - 1) % len(x_path)]
+        y_prev = y_path[(np.argmin(dist) - 1) % len(y_path)]
+        self.psi_des = math.atan2((y_next - y_prev), (x_next - x_prev)) - np.pi
+        if self.psi_des > np.pi:
+            print("Yalla")
+            self.psi_des -= 2 * np.pi
+        elif self.psi_des < -np.pi:
+            self.psi_des += 2 * np.pi
+        print(self.psi * 180./np.pi, self.psi_des * 180./np.pi, self.theta * 180./np.pi, dist[np.argmin(dist)])
         return
 
 class SimulatorNode():
@@ -202,14 +220,18 @@ class VisualizerWindow(QDialog):
 
     def position_plot(self):
         t = np.linspace(0, 2*np.pi, 100)
-        x_des = np.sin(t)
-        y_des = np.sin(t) * np.cos(t)
+        x_des = np.sin(t) * 0.5
+        y_des = 0.5 + np.cos(t) * 0.5
         position_ax = self.position_figure.add_subplot()
         position_ax.cla()
         position_ax.plot(x_des, y_des, c='r')
-        position_ax.scatter(self.bike_sim.model.x_pos, self.bike_sim.model.y_pos, c = 'b')
+        position_ax.plot([self.bike_sim.model.x_pos - self.bike_sim.model.l_r * np.cos(self.bike_sim.model.psi), 
+                        self.bike_sim.model.x_pos + self.bike_sim.model.l_f * np.cos(self.bike_sim.model.psi)], 
+                        [self.bike_sim.model.y_pos - self.bike_sim.model.l_r * np.sin(self.bike_sim.model.psi), 
+                        self.bike_sim.model.y_pos + self.bike_sim.model.l_f * np.sin(self.bike_sim.model.psi)], c = 'b')
         position_ax.set_xlabel('X-Position')
         position_ax.set_ylabel('Y-Position')
+        position_ax.set_aspect('equal')
         self.position_figure.tight_layout()
         self.position_canvas.draw()
         return
