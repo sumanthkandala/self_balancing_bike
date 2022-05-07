@@ -15,7 +15,7 @@ import keyboard
 matplotlib.use('GTK3Agg') 
 warnings.filterwarnings("ignore",category=matplotlib.cbook.mplDeprecation)
 
-controller = "model"
+controller = "nav"
 mode = "auto"
 visualizer = "true"
 
@@ -76,13 +76,13 @@ class BikeModel():
         global mode, controller
         self.itr += 1
 
-        if controller == "model":
+        if controller == "nav":
             self.navigation_controller()
             self.balance_controller()
         elif controller == "pid":
             self.pid_controller()
         else:
-            print("Incorrect Controller: Options are 'model' and 'pid', ")
+            print("Incorrect Controller: Options are 'nav' and 'pid', ")
 
         #Position Update
         self.x_pos += self.v * np.cos(self.psi) * self.dt
@@ -99,7 +99,7 @@ class BikeModel():
         self.delta = min(self.steer_max, max(-self.steer_max, self.delta + self.delta_dot * self.dt))
 
         #Path Update
-        if mode == "auto" or controller == 'model':
+        if mode == "auto" or controller == 'nav':
             self.path_updater()
         elif mode == "manual" or controller == 'pid':
             self.key_updater()
@@ -122,7 +122,6 @@ class BikeModel():
 
     def pid_controller(self):
         self.err = min(np.pi/2., max(-np.pi/2., self.err + self.phi * self.dt))
-        print(self.err)
         self.delta_dot = max(-self.steer_rate_max, min(self.steer_rate_max, self.Kp * self.phi + self.Ki * self.err + self.Kd * self.phi_dot))
         return
 
@@ -295,7 +294,7 @@ class VisualizerWindow(QDialog):
 
 def main():
     parser = argparse.ArgumentParser(description = "Description for my parser")
-    parser.add_argument("-c", "--controller", help = "Specify Controller (pid, model)", required = False, default = "model")
+    parser.add_argument("-c", "--controller", help = "Specify Controller (pid, nav)", required = False, default = "model")
     parser.add_argument("-v", "--visualizer", help = "Turn Visualizer On/Off (true, false)", required = False, default = "true")
     parser.add_argument("-m", "--mode", help = "Specify Control Mode (auto, manual)", required = False, default = "auto")
     argument = parser.parse_args()
