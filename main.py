@@ -1,3 +1,4 @@
+from pyexpat import model
 import matplotlib.pyplot as plt
 import numpy as np
 import math
@@ -8,7 +9,12 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from threading import Timer
 import warnings
 import matplotlib.cbook
+import argparse
 warnings.filterwarnings("ignore",category=matplotlib.cbook.mplDeprecation)
+
+controller = "model"
+mode = "auto"
+visualizer = "true"
 
 class BikeModel():
     def __init__(self, Ts):
@@ -68,7 +74,7 @@ class BikeModel():
         #Heading Update
         self.psi_dot = self.v * np.tan(self.delta) / (self.w * np.cos(self.phi))
         self.psi = math.atan2(np.sin(self.psi + self.psi_dot * self.dt), np.cos(self.psi + self.psi_dot * self.dt)) 
-        #self.psi += self.psi_dot * self.dt
+
         #Balance Update
         #self.phi_ddot = (self.g / self.h) * self.phi - (self.v**2 / (self.h * self.w)) * self.delta - (self.l_r * self.v / (self.h * self.w)) * self.delta_dot
         self.phi_ddot = (self.g / self.h) * np.sin(self.phi) - np.tan(self.delta) * self.v**2 / (self.h * self.w) - self.l_r * self.v * self.delta_dot / (self.h * self.w * np.cos(self.delta)**2) - self.l_r * self.v_dot * np.tan(self.delta) / (self.h * self.w) + self.v**2 * np.tan(self.delta)**2 * np.tan(self.theta) / (self.w**2) - self.l_r * self.phi_dot * np.tan(self.delta) * np.tan(self.phi) / (self.h * self.w)
@@ -78,11 +84,8 @@ class BikeModel():
 
         #Path Update
         self.path_updater()
-        self.theta = self.psi - self.psi_des
-        if self.theta < -np.pi:
-            self.theta += 2 * np.pi
-        elif self.theta > np.pi:
-            self.theta -= 2 * np.pi
+        self.theta = np.mod(self.psi - self.psi_des + np.pi, 2*np.pi) - np.pi
+        
         self.d_dot = self.v * np.sin(self.theta)
         self.d += self.d_dot * self.dt 
 
@@ -109,13 +112,7 @@ class BikeModel():
         y_next = y_path[(np.argmin(dist) + 1) % len(y_path)]
         x_prev = x_path[(np.argmin(dist) - 1) % len(x_path)]
         y_prev = y_path[(np.argmin(dist) - 1) % len(y_path)]
-        self.psi_des = math.atan2((y_next - y_prev), (x_next - x_prev)) - np.pi
-        if self.psi_des > np.pi:
-            print("Yalla")
-            self.psi_des -= 2 * np.pi
-        elif self.psi_des < -np.pi:
-            self.psi_des += 2 * np.pi
-        print(self.psi * 180./np.pi, self.psi_des * 180./np.pi, self.theta * 180./np.pi, dist[np.argmin(dist)])
+        self.psi_des = np.mod(math.atan2((y_next - y_prev), (x_next - x_prev)) + 2*np.pi, 2*np.pi) - np.pi
         return
 
 class SimulatorNode():
@@ -143,12 +140,13 @@ class VisualizerWindow(QDialog):
         super(VisualizerWindow, self).__init__(None)
 
         # START TIMER      
+        global controller, mode, visualizer
         self.running = False
         self.time_step = 0.01
         self.time = 0.
         self.timer = Timer(interval=self.time_step, function=self.step)
         self.timer.start()
-        self.visualization = sys.argv[1] != "False"
+        self.visualization = (visualizer == "true" or visualizer == "True")
 
         # BIKE MODEL
         self.bike_sim = SimulatorNode(self.time_step)
@@ -250,6 +248,21 @@ class VisualizerWindow(QDialog):
         return 
 
 def main():
+    parser = argparse.ArgumentParser(description = "Description for my parser")
+    parser.add_argument("-c", "--controller", help = "Specify Controller (pid, model)", required = False, default = "model")
+    parser.add_argument("-v", "--visualizer", help = "Turn Visualizer On/Off (true, false)", required = False, default = "true")
+    parser.add_argument("-m", "--mode", help = "Specify Control Mode (auto, manual)", required = False, default = "auto")
+    argument = parser.parse_args()
+
+    global controller, mode, visualizer
+
+    if argument.controller:
+        controller = argument.controller
+    if argument.mode:
+        mode = argument.mode
+    if argument.visualizer:
+        visualizer = argument.visualizer
+
     print("Starting GUI")
     VisualizerNode()
 
