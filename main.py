@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import math
 import sys
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QApplication, QPushButton, QVBoxLayout
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -10,6 +11,8 @@ from threading import Timer
 import warnings
 import matplotlib.cbook
 import argparse
+import keyboard
+matplotlib.use('GTK3Agg') 
 warnings.filterwarnings("ignore",category=matplotlib.cbook.mplDeprecation)
 
 controller = "model"
@@ -22,7 +25,7 @@ class BikeModel():
         # Bike State
         self.x_pos = 0.
         self.y_pos = 0.
-        self.phi = 0.0
+        self.phi = 0.1
         self.psi = 0.0
         self.d = 0.
         self.theta = 0.
@@ -39,8 +42,9 @@ class BikeModel():
         self.v_dot = 0.
 
         # Bike Control Input
-        self.delta_dot = 0
+        self.delta_dot = 0.
         self.v = 0.3
+        self.key_input = 0.
 
         # Config Params
         self.h = 0.015 # Height
@@ -53,19 +57,32 @@ class BikeModel():
         self.g = 9.81 # Gravity
         self.dt = Ts
 
-        # Controller Params
+        # Model Controller Params
         self.K1 = 80.
         self.K2 = 20.
         self.K3 = -20.
         self.K4 = 0.4
         self.K5 = 0.2
         self.K6 = 0.1
+
+        # PID Controller Params
+        self.Kp = 40.
+        self.Ki = 20.
+        self.Kd = 10.
+        self.err = 0.
         return
 
     def step(self):
+        global mode, controller
         self.itr += 1
-        self.navigation_controller()
-        self.balance_controller()
+
+        if controller == "model":
+            self.navigation_controller()
+            self.balance_controller()
+        elif controller == "pid":
+            self.pid_controller()
+        else:
+            print("Incorrect Controller: Options are 'model' and 'pid', ")
 
         #Position Update
         self.x_pos += self.v * np.cos(self.psi) * self.dt
@@ -76,18 +93,18 @@ class BikeModel():
         self.psi = math.atan2(np.sin(self.psi + self.psi_dot * self.dt), np.cos(self.psi + self.psi_dot * self.dt)) 
 
         #Balance Update
-        #self.phi_ddot = (self.g / self.h) * self.phi - (self.v**2 / (self.h * self.w)) * self.delta - (self.l_r * self.v / (self.h * self.w)) * self.delta_dot
         self.phi_ddot = (self.g / self.h) * np.sin(self.phi) - np.tan(self.delta) * self.v**2 / (self.h * self.w) - self.l_r * self.v * self.delta_dot / (self.h * self.w * np.cos(self.delta)**2) - self.l_r * self.v_dot * np.tan(self.delta) / (self.h * self.w) + self.v**2 * np.tan(self.delta)**2 * np.tan(self.theta) / (self.w**2) - self.l_r * self.phi_dot * np.tan(self.delta) * np.tan(self.phi) / (self.h * self.w)
         self.phi_dot += self.phi_ddot * self.dt #REPLACE WITH GYRO FEEDBACK
-        self.phi = min(np.pi/2., max(-np.pi/2., self.phi + self.phi_dot * self.dt))
+        self.phi = min(np.pi/6., max(-np.pi/6., self.phi + self.phi_dot * self.dt))
         self.delta = min(self.steer_max, max(-self.steer_max, self.delta + self.delta_dot * self.dt))
 
         #Path Update
-        self.path_updater()
-        self.theta = np.mod(self.psi - self.psi_des + np.pi, 2*np.pi) - np.pi
-        
-        self.d_dot = self.v * np.sin(self.theta)
-        self.d += self.d_dot * self.dt 
+        if mode == "auto" or controller == 'model':
+            self.path_updater()
+        elif mode == "manual" or controller == 'pid':
+            self.key_updater()
+        else:
+            print("Incorrect Mode: Options are 'auto' or 'manual'")
 
         #Check Toppling Condition
         if abs(self.phi) > np.pi/6:
@@ -103,6 +120,12 @@ class BikeModel():
         self.delta_target = self.K4 * self.theta + self.K5 * self.d + self.K6 * self.d_dot
         return
 
+    def pid_controller(self):
+        self.err = min(np.pi/2., max(-np.pi/2., self.err + self.phi * self.dt))
+        print(self.err)
+        self.delta_dot = max(-self.steer_rate_max, min(self.steer_rate_max, self.Kp * self.phi + self.Ki * self.err + self.Kd * self.phi_dot))
+        return
+
     def path_updater(self):
         t = np.linspace(0, 2*np.pi, 1000)
         x_path = np.sin(t) * 0.5
@@ -113,7 +136,28 @@ class BikeModel():
         x_prev = x_path[(np.argmin(dist) - 1) % len(x_path)]
         y_prev = y_path[(np.argmin(dist) - 1) % len(y_path)]
         self.psi_des = np.mod(math.atan2((y_next - y_prev), (x_next - x_prev)) + 2*np.pi, 2*np.pi) - np.pi
+        self.theta = np.mod(self.psi - self.psi_des + np.pi, 2*np.pi) - np.pi
+        self.d_dot = self.v * np.sin(self.theta)
+        self.d += self.d_dot * self.dt 
         return
+    
+    def left_key(self, event):
+        print("Left")
+        self.key_input -= 10
+        return
+    
+    def right_key(self, event):
+        print("Right")
+        self.key_input -= 10
+        return
+
+    def key_updater(self):
+        keyboard.on_press_key("left arrow", self.left_key)
+        keyboard.on_press_key("right arrow", self.right_key)
+        self.psi_des = self.key_input * 0.1
+        self.key_input = 0.
+        return
+
 
 class SimulatorNode():
     def __init__(self, Ts):
@@ -148,7 +192,7 @@ class VisualizerWindow(QDialog):
         self.timer.start()
         self.visualization = (visualizer == "true" or visualizer == "True")
 
-        # BIKE MODEL
+        # BIKE MODEL & PARAMS
         self.bike_sim = SimulatorNode(self.time_step)
 
         # MPL FIGURE
@@ -217,12 +261,14 @@ class VisualizerWindow(QDialog):
         return
 
     def position_plot(self):
+        global mode
         t = np.linspace(0, 2*np.pi, 100)
         x_des = np.sin(t) * 0.5
         y_des = 0.5 + np.cos(t) * 0.5
         position_ax = self.position_figure.add_subplot()
         position_ax.cla()
-        position_ax.plot(x_des, y_des, c='r')
+        if mode == "auto":
+            position_ax.plot(x_des, y_des, c='r')
         position_ax.plot([self.bike_sim.model.x_pos - self.bike_sim.model.l_r * np.cos(self.bike_sim.model.psi), 
                         self.bike_sim.model.x_pos + self.bike_sim.model.l_f * np.cos(self.bike_sim.model.psi)], 
                         [self.bike_sim.model.y_pos - self.bike_sim.model.l_r * np.sin(self.bike_sim.model.psi), 
@@ -256,14 +302,16 @@ def main():
 
     global controller, mode, visualizer
 
-    if argument.controller:
-        controller = argument.controller
     if argument.mode:
         mode = argument.mode
+    if argument.controller:
+        controller = argument.controller
+        if controller == "pid" and mode == "auto":
+            print("PID only supports manual mode, switching to manual mode.")
+            mode = "manual"
     if argument.visualizer:
         visualizer = argument.visualizer
 
-    print("Starting GUI")
     VisualizerNode()
 
 if __name__ == '__main__':
