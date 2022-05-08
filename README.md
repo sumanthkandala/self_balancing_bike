@@ -25,10 +25,3 @@ python3 main.py -args
 where args are:
 -m (mode): 'auto' or 'manual'
 -c (controller): 'pid' or 'nav'
--v (visualizer): 'true' or 'false'
-
-Code runs faster without visualizer. 
-
-TODO:
-1) Visualizer speed improve
-2) Navigation controller tuning
