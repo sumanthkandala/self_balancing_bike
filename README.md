@@ -5,19 +5,26 @@ Balance Controller Added. Navigation Controller in Progress.
 
 Config Parameters Used:
 
-h = 0.015 #Height
+  Bike Height
+  h = 0.15 
 
-l_f = 0.02 #Front Axle to CG
+  Front Axle to CG
+  l_f = 0.2
 
-l_r = 0.01 #Real Axle to CG
+  Real Axle to CG
+  l_r = 0.1 
 
-wd = 0.01 #Wheel Diameter (Only Visualization)
+  Wheel Diameter (Only Visualization)
+  wd = 0.1 
 
-w = l_f + l_r #Wheelbase
+  Wheelbase
+  w = l_f + l_r
 
-g = 9.81 #Gravity 
+  Gravity
+  g = 9.81 
 
-time_step = 0.01 #Seconds
+  Discretization Step
+  time_step = 0.01 
 
 To run with Visualization:
 python3 main.py -args
@@ -25,3 +32,6 @@ python3 main.py -args
 where args are:
 -m (mode): 'auto' or 'manual'
 -c (controller): 'pid' or 'nav'
+
+Notes:
+Manual (aka Keyboard Control mode) only works with nav controller to ensure path/position tracking. PID control is only used to demonstrate self-balancing. 
